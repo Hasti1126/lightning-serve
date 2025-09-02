@@ -1,0 +1,19 @@
+[theme]
+# Default mode the app starts in
+base = "dark"
+
+# Colors for dark mode
+primaryColor = "#9C6ADE"                # Soft violet
+backgroundColor = "#0F0F1A"             # Deep blue-black
+secondaryBackgroundColor = "#1A1B2B"    # Dark card background
+textColor = "#FFFFFF"                   # White
+
+# Font
+font = "sans serif"
+
+# You can allow switching by user in Streamlit sidebar
+
+[server]
+enableCORS = false
+enableXsrfProtection = false
+
