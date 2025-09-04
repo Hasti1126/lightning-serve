@@ -24,8 +24,16 @@ app = FastAPI(
     description="Production-ready Vision-Language RAG system with distributed caching and real-time processing",
     version="2.0.0"
 )
-# Serve static UI
-app.mount("/static", StaticFiles(directory="static"), name="static")
+def read_secret(path):
+    try:
+        with open(path, "r") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return None
+# Serve static UI (optional)
+import os
+if os.path.exists("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "*")
@@ -44,7 +52,7 @@ metrics = setup_metrics()
 
 # Redis connection (supports REDIS_URL)
 try:
-    redis_url = os.getenv("REDIS_URL")
+    redis_url = os.getenv("REDIS_URL") or read_secret("/etc/secrets/REDIS_URL")
     if redis_url:
         redis_client = redis.from_url(redis_url, decode_responses=True)
     else:
@@ -107,50 +115,103 @@ async def ui_page():
       <title>Lightning-Serve UI</title>
       <script src=\"https://cdn.tailwindcss.com\"></script>
       <link rel=\"icon\" href=\"/static/favicon.ico\" />
+
     </head>
     <body class=\"bg-gray-900 text-gray-100\">
-      <div class=\"max-w-6xl mx-auto p-6\">
-        <h1 class=\"text-2xl font-bold flex items-center gap-2 text-white\">⚡ Lightning-Serve: Vision-Language RAG</h1>
-        <p class=\"text-gray-400 mb-6\">Upload, query, benchmark, and view analytics.</p>
+      <!-- Mobile menu button -->
+      <button id=\"mobileMenuBtn\" class=\"md:hidden fixed top-4 left-4 z-50 bg-gray-800 text-white p-2 rounded-lg border border-gray-700\">
+        <svg class=\"w-6 h-6\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\">
+          <path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M4 6h16M4 12h16M4 18h16\"></path>
+        </svg>
+      </button>
+      
+      <div class=\"flex h-screen\">
+        <!-- Sidebar -->
+        <div id=\"sidebar\" class=\"fixed md:relative inset-y-0 left-0 z-40 w-80 bg-gray-800 border-r border-gray-700 p-4 overflow-y-auto transform -translate-x-full md:translate-x-0 transition-transform duration-300 ease-in-out\">
+          <div class=\"flex justify-between items-center mb-4\">
+            <h2 class=\"text-lg font-semibold text-white\">🔧 System Status</h2>
+            <button id=\"closeSidebar\" class=\"md:hidden text-gray-400 hover:text-white\">
+              <svg class=\"w-6 h-6\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\">
+                <path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M6 18L18 6M6 6l12 12\"></path>
+              </svg>
+            </button>
+          </div>
+          
+          <div id=\"systemStatus\" class=\"mb-6\">
+            <div class=\"text-sm text-gray-400\">Loading...</div>
+          </div>
+          
+          <h3 class=\"text-md font-semibold mb-3 text-white\">📊 Performance</h3>
+          <div id=\"performanceMetrics\" class=\"space-y-2\">
+            <div class=\"text-sm text-gray-400\">Loading...</div>
+          </div>
+          
+          <h3 class=\"text-md font-semibold mb-3 text-white mt-6\">📚 Collections</h3>
+          <div id=\"collectionsList\" class=\"space-y-2\">
+            <div class=\"text-sm text-gray-400\">Loading...</div>
+          </div>
+        </div>
+        
+        <!-- Overlay for mobile -->
+        <div id=\"sidebarOverlay\" class=\"fixed inset-0 bg-black bg-opacity-50 z-30 md:hidden hidden\"></div>
+        
+        <!-- Main Content -->
+        <div class=\"flex-1 p-4 md:p-6 overflow-y-auto\">
+          <div class=\"md:pt-0 pt-12\">
+            <h1 class=\"text-xl md:text-2xl font-bold flex items-center gap-2 text-white mb-2\">⚡ Lightning-Serve: Vision-Language RAG</h1>
+            <p class=\"text-gray-400 mb-6 text-sm md:text-base\">Upload, query, benchmark, and view analytics.</p>
 
-        <div class=\"grid md:grid-cols-2 gap-6\">
+            <div class=\"grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6\">
           <!-- Upload -->
-          <section class=\"bg-gray-800 rounded-xl shadow-lg p-5 border border-gray-700\">
-            <h2 class=\"font-semibold mb-3 text-white\">Document Upload</h2>
-            <input id=\"collection\" class=\"border border-gray-600 bg-gray-700 text-white rounded px-3 py-2 w-full mb-3 focus:border-blue-500 focus:outline-none\" value=\"my_documents\" />
-            <input id=\"files\" type=\"file\" multiple class=\"mb-3 text-gray-300\" accept=\".pdf,.png,.jpg,.jpeg\" />
-            <button id=\"btnUpload\" class=\"px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors\">Process Documents</button>
-            <pre id=\"uploadOut\" class=\"mt-3 text-xs bg-gray-900 text-gray-300 p-3 rounded overflow-auto border border-gray-700\"></pre>
+          <section class=\"bg-gray-800 rounded-xl shadow-lg p-4 md:p-5 border border-gray-700\">
+            <h2 class=\"font-semibold mb-3 text-white text-sm md:text-base\">Document Upload</h2>
+            <input id=\"collection\" class=\"border border-gray-600 bg-gray-700 text-white rounded px-3 py-2 w-full mb-3 text-sm focus:border-blue-500 focus:outline-none\" value=\"my_documents\" />
+            <input id=\"files\" type=\"file\" multiple class=\"mb-3 text-gray-300 text-sm w-full\" accept=\".pdf,.png,.jpg,.jpeg\" />
+            <button id=\"btnUpload\" class=\"w-full md:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-sm\">Process Documents</button>
+            <div id=\"uploadOut\" class=\"mt-3\"></div>
           </section>
 
           <!-- Query -->
-          <section class=\"bg-gray-800 rounded-xl shadow-lg p-5 border border-gray-700\">
-            <h2 class=\"font-semibold mb-3 text-white\">RAG Query</h2>
-            <div class=\"flex gap-2 mb-2\">
-              <input id=\"queryCollection\" class=\"border border-gray-600 bg-gray-700 text-white rounded px-3 py-2 w-1/3 focus:border-blue-500 focus:outline-none\" placeholder=\"collection\" value=\"my_documents\" />
-              <input id=\"topk\" type=\"number\" min=\"1\" max=\"5\" value=\"1\" class=\"border border-gray-600 bg-gray-700 text-white rounded px-3 py-2 w-20 focus:border-blue-500 focus:outline-none\" />
-              <label class=\"flex items-center gap-2 text-gray-300\"><input id=\"ctx\" type=\"checkbox\" checked class=\"rounded\" /> Include context</label>
+          <section class=\"bg-gray-800 rounded-xl shadow-lg p-4 md:p-5 border border-gray-700\">
+            <h2 class=\"font-semibold mb-3 text-white text-sm md:text-base\">RAG Query</h2>
+            <div class=\"flex flex-col sm:flex-row gap-2 mb-2\">
+              <select id=\"queryCollection\" class=\"border border-gray-600 bg-gray-700 text-white rounded px-3 py-2 flex-1 focus:border-blue-500 focus:outline-none text-sm\">
+                <option value=\"my_documents\">my_documents</option>
+              </select>
+              <input id=\"topk\" type=\"number\" min=\"1\" max=\"5\" value=\"1\" class=\"border border-gray-600 bg-gray-700 text-white rounded px-3 py-2 w-20 focus:border-blue-500 focus:outline-none text-sm\" />
+              <label class=\"flex items-center gap-2 text-gray-300 text-sm\"><input id=\"ctx\" type=\"checkbox\" checked class=\"rounded\" /> Include context</label>
             </div>
-            <textarea id=\"question\" class=\"border border-gray-600 bg-gray-700 text-white rounded px-3 py-2 w-full h-24 mb-2 focus:border-blue-500 focus:outline-none\" placeholder=\"Ask a question...\">What is the main topic discussed?</textarea>
-            <button id=\"btnQuery\" class=\"px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded transition-colors\">Query</button>
-            <pre id=\"queryOut\" class=\"mt-3 text-xs bg-gray-900 text-gray-300 p-3 rounded overflow-auto border border-gray-700\"></pre>
+            <textarea id=\"question\" class=\"border border-gray-600 bg-gray-700 text-white rounded px-3 py-2 w-full h-20 md:h-24 mb-2 focus:border-blue-500 focus:outline-none text-sm\" placeholder=\"Ask a question...\">What is the main topic discussed?</textarea>
+            <button id=\"btnQuery\" class=\"w-full md:w-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded transition-colors text-sm\">Query</button>
+            <div id=\"queryResult\" class=\"mt-3\"></div>
           </section>
 
           <!-- Benchmark -->
-          <section class=\"bg-gray-800 rounded-xl shadow-lg p-5 border border-gray-700\">
-            <h2 class=\"font-semibold mb-3 text-white\">Performance Benchmark</h2>
-            <button id=\"btnBench\" class=\"px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors\">Run RAG Benchmark</button>
-            <pre id=\"benchOut\" class=\"mt-3 text-xs bg-gray-900 text-gray-300 p-3 rounded overflow-auto border border-gray-700\"></pre>
+          <section class=\"bg-gray-800 rounded-xl shadow-lg p-4 md:p-5 border border-gray-700\">
+            <h2 class=\"font-semibold mb-3 text-white text-sm md:text-base\">Performance Benchmark</h2>
+            <button id=\"btnBench\" class=\"w-full md:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors text-sm\">Run RAG Benchmark</button>
+            <div id=\"benchResult\" class=\"mt-3\"></div>
+          </section>
+
+          <!-- Load Testing -->
+          <section class=\"bg-gray-800 rounded-xl shadow-lg p-4 md:p-5 border border-gray-700\">
+            <h2 class=\"font-semibold mb-3 text-white text-sm md:text-base\">Load Testing</h2>
+            <div class=\"flex flex-col sm:flex-row gap-2 mb-3\">
+              <input id=\"loadQueries\" type=\"number\" min=\"5\" max=\"50\" value=\"20\" placeholder=\"Queries\" class=\"border border-gray-600 bg-gray-700 text-white rounded px-3 py-2 flex-1 focus:border-blue-500 focus:outline-none text-sm\" />
+              <input id=\"loadWorkers\" type=\"number\" min=\"1\" max=\"10\" value=\"5\" placeholder=\"Workers\" class=\"border border-gray-600 bg-gray-700 text-white rounded px-3 py-2 flex-1 focus:border-blue-500 focus:outline-none text-sm\" />
+              <button id=\"btnLoadTest\" class=\"w-full sm:w-auto px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded transition-colors text-sm\">Run Load Test</button>
+            </div>
+            <div id=\"loadResult\" class=\"mt-3\"></div>
           </section>
 
           <!-- Analytics -->
-          <section class=\"bg-gray-800 rounded-xl shadow-lg p-5 border border-gray-700\">
-            <h2 class=\"font-semibold mb-3 text-white\">System Analytics</h2>
-            <div class=\"flex gap-3 mb-2\">
-              <button id=\"btnHealth\" class=\"px-3 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded transition-colors\">Health</button>
-              <button id=\"btnStats\" class=\"px-3 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded transition-colors\">Stats</button>
+          <section class=\"bg-gray-800 rounded-xl shadow-lg p-4 md:p-5 border border-gray-700\">
+            <h2 class=\"font-semibold mb-3 text-white text-sm md:text-base\">System Analytics</h2>
+            <div class=\"flex flex-col sm:flex-row gap-2 mb-2\">
+              <button id=\"btnHealth\" class=\"flex-1 px-3 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded transition-colors text-sm\">Health</button>
+              <button id=\"btnStats\" class=\"flex-1 px-3 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded transition-colors text-sm\">Stats</button>
             </div>
-            <pre id=\"statsOut\" class=\"mt-1 text-xs bg-gray-900 text-gray-300 p-3 rounded overflow-auto border border-gray-700\"></pre>
+            <div id=\"statsResult\" class=\"mt-1\"></div>
           </section>
         </div>
 
@@ -168,22 +229,137 @@ async def ui_page():
         return res.json();
       }
 
+      async function fetchJson(url) {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      }
+
+      function showSuccess(message) {
+        return `<div class=\"bg-green-900 border border-green-600 text-green-200 px-3 py-2 rounded mb-2\">✅ ${message}</div>`;
+      }
+
+      function showError(message) {
+        return `<div class=\"bg-red-900 border border-red-600 text-red-200 px-3 py-2 rounded mb-2\">❌ ${message}</div>`;
+      }
+
+      function showLoading(message) {
+        return `<div class=\"bg-blue-900 border border-blue-600 text-blue-200 px-3 py-2 rounded mb-2\">⏳ ${message}</div>`;
+      }
+
+      // Load system status
+      async function loadSystemStatus() {
+        try {
+          const health = await fetchJson(`${API}/health`);
+          const collections = await fetchJson(`${API}/rag/collections`);
+          
+          // System Status
+          const statusHtml = health.status === 'healthy' ? 
+            '<div class=\"text-green-400 text-sm\">✅ System Online</div>' :
+            '<div class=\"text-red-400 text-sm\">❌ System Offline</div>';
+          
+          const servicesHtml = Object.entries(health.services).map(([service, status]) => {
+            const label = service.replace('_', ' ').replace(/\\b\\w/g, l => l.toUpperCase());
+            const icon = status ? '✅' : '⚠️';
+            const color = status ? 'text-green-400' : 'text-yellow-400';
+            return `<div class=\"text-sm ${color}\">${icon} ${label}</div>`;
+          }).join('');
+          
+          qs('#systemStatus').innerHTML = statusHtml + servicesHtml;
+          
+          // Performance Metrics
+          const perf = health.performance || {};
+          const perfHtml = `
+            <div class=\"text-sm text-gray-300\">Uptime: ${Math.round(perf.uptime || 0)}s</div>
+            <div class=\"text-sm text-gray-300\">Total Queries: ${perf.total_rag_queries || 0}</div>
+            <div class=\"text-sm text-gray-300\">Cache Hit Rate: ${perf.cache_hit_rate || '0%'}</div>
+          `;
+          qs('#performanceMetrics').innerHTML = perfHtml;
+          
+          // Collections
+          const collectionsHtml = collections.collections && collections.collections.length > 0 ?
+            collections.collections.map(c => `<div class=\"text-sm text-gray-300\">📚 ${c.name} (${c.document_count} docs)</div>`).join('') :
+            '<div class=\"text-sm text-gray-400\">No collections found</div>';
+          qs('#collectionsList').innerHTML = collectionsHtml;
+          
+          // Update collection selector
+          const select = qs('#queryCollection');
+          select.innerHTML = '';
+          if (collections.collections && collections.collections.length > 0) {
+            collections.collections.forEach(c => {
+              const option = document.createElement('option');
+              option.value = c.name;
+              option.textContent = c.name;
+              select.appendChild(option);
+            });
+          } else {
+            const option = document.createElement('option');
+            option.value = 'default';
+            option.textContent = 'default';
+            select.appendChild(option);
+          }
+          
+        } catch (e) {
+          qs('#systemStatus').innerHTML = '<div class=\"text-red-400 text-sm\">❌ Failed to load status</div>';
+        }
+      }
+
+      // Mobile menu functionality
+      const sidebar = qs('#sidebar');
+      const sidebarOverlay = qs('#sidebarOverlay');
+      const mobileMenuBtn = qs('#mobileMenuBtn');
+      const closeSidebar = qs('#closeSidebar');
+
+      function openSidebar() {
+        sidebar.classList.remove('-translate-x-full');
+        sidebarOverlay.classList.remove('hidden');
+      }
+
+      function closeSidebarMenu() {
+        sidebar.classList.add('-translate-x-full');
+        sidebarOverlay.classList.add('hidden');
+      }
+
+      mobileMenuBtn.addEventListener('click', openSidebar);
+      closeSidebar.addEventListener('click', closeSidebarMenu);
+      sidebarOverlay.addEventListener('click', closeSidebarMenu);
+
+      // Close sidebar when clicking outside on mobile
+      document.addEventListener('click', (e) => {
+        if (window.innerWidth < 768 && !sidebar.contains(e.target) && !mobileMenuBtn.contains(e.target)) {
+          closeSidebarMenu();
+        }
+      });
+
+      // Load status on page load
+      loadSystemStatus();
+      setInterval(loadSystemStatus, 10000); // Refresh every 10 seconds
+
       qs('#btnUpload').onclick = async () => {
-        const out = qs('#uploadOut'); out.textContent = 'Uploading...';
+        const out = qs('#uploadOut');
+        out.innerHTML = showLoading('Uploading documents...');
         try {
           const files = qs('#files').files;
-          if (!files.length) { out.textContent = 'Please choose files.'; return; }
+          if (!files.length) { 
+            out.innerHTML = showError('Please choose files to upload.'); 
+            return; 
+          }
           const form = new FormData();
           form.append('collection_name', qs('#collection').value || 'default');
           for (const f of files) form.append('files', f, f.name);
           const res = await fetch(`${API}/rag/upload-documents`, { method: 'POST', body: form });
           const json = await res.json();
-          out.textContent = JSON.stringify(json, null, 2);
-        } catch (e) { out.textContent = String(e); }
+          out.innerHTML = showSuccess(`Documents processed successfully! ${json.documents_processed} files, ${json.total_pages} pages.`) + 
+            `<pre class=\"text-xs bg-gray-900 text-gray-300 p-3 rounded overflow-auto border border-gray-700 mt-2\">${JSON.stringify(json, null, 2)}</pre>`;
+          loadSystemStatus(); // Refresh collections
+        } catch (e) { 
+          out.innerHTML = showError(`Upload failed: ${e.message}`); 
+        }
       };
 
       qs('#btnQuery').onclick = async () => {
-        const out = qs('#queryOut'); out.textContent = 'Querying...';
+        const out = qs('#queryResult');
+        out.innerHTML = showLoading('Processing query...');
         try {
           const payload = {
             query: qs('#question').value,
@@ -192,28 +368,158 @@ async def ui_page():
             include_context: qs('#ctx').checked
           };
           const json = await postForm(`${API}/rag/query`, payload);
-          out.textContent = JSON.stringify(json, null, 2);
-        } catch (e) { out.textContent = String(e); }
+          
+          const answerHtml = `
+            <div class=\"bg-gray-900 border border-gray-700 rounded p-3 mb-3\">
+              <h4 class=\"font-semibold text-white mb-2\">📝 Answer</h4>
+              <p class=\"text-gray-300\">${json.answer || 'No answer generated'}</p>
+            </div>
+            <div class=\"grid grid-cols-2 md:grid-cols-4 gap-2 mb-3\">
+              <div class=\"bg-gray-700 rounded p-2 text-center\">
+                <div class=\"text-xs text-gray-400\">Similarity</div>
+                <div class=\"text-sm font-semibold\">${(json.similarity_score || 0).toFixed(3)}</div>
+              </div>
+              <div class=\"bg-gray-700 rounded p-2 text-center\">
+                <div class=\"text-xs text-gray-400\">Time</div>
+                <div class=\"text-sm font-semibold\">${(json.processing_time || 0).toFixed(3)}s</div>
+              </div>
+              <div class=\"bg-gray-700 rounded p-2 text-center\">
+                <div class=\"text-xs text-gray-400\">Cache</div>
+                <div class=\"text-sm font-semibold\">${json.from_cache ? 'Yes' : 'No'}</div>
+              </div>
+              <div class=\"bg-gray-700 rounded p-2 text-center\">
+                <div class=\"text-xs text-gray-400\">Source</div>
+                <div class=\"text-sm font-semibold\">${json.source_document || 'N/A'}</div>
+              </div>
+            </div>
+          `;
+          
+          out.innerHTML = showSuccess('Query processed successfully!') + answerHtml;
+          loadSystemStatus(); // Refresh metrics
+        } catch (e) { 
+          out.innerHTML = showError(`Query failed: ${e.message}`); 
+        }
       };
 
       qs('#btnBench').onclick = async () => {
-        const out = qs('#benchOut'); out.textContent = 'Running benchmark...';
-        qs('#btnBench').disabled = true;
+        const out = qs('#benchResult');
+        const btn = qs('#btnBench');
+        out.innerHTML = showLoading('Running comprehensive benchmark...');
+        btn.disabled = true;
         try {
           const res = await fetch(`${API}/rag/benchmark`);
           const json = await res.json();
-          out.textContent = JSON.stringify(json, null, 2);
-        } catch (e) { out.textContent = String(e); }
-        finally { qs('#btnBench').disabled = false; }
+          
+          const summary = json.benchmark_summary || {};
+          const summaryHtml = `
+            <div class=\"grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3\">
+              <div class=\"bg-gray-700 rounded p-2 text-center\">
+                <div class=\"text-xs text-gray-400\">Queries/sec</div>
+                <div class=\"text-sm font-semibold\">${(summary.queries_per_second || 0).toFixed(2)}</div>
+              </div>
+              <div class=\"bg-gray-700 rounded p-2 text-center\">
+                <div class=\"text-xs text-gray-400\">Success Rate</div>
+                <div class=\"text-sm font-semibold\">${(summary.success_rate || 0).toFixed(1)}%</div>
+              </div>
+              <div class=\"bg-gray-700 rounded p-2 text-center\">
+                <div class=\"text-xs text-gray-400\">Avg Time</div>
+                <div class=\"text-sm font-semibold\">${(summary.avg_query_time || 0).toFixed(3)}s</div>
+              </div>
+            </div>
+          `;
+          
+          out.innerHTML = showSuccess('Benchmark completed!') + summaryHtml + 
+            `<pre class=\"text-xs bg-gray-900 text-gray-300 p-3 rounded overflow-auto border border-gray-700 mt-2\">${JSON.stringify(json, null, 2)}</pre>`;
+          loadSystemStatus(); // Refresh metrics
+        } catch (e) { 
+          out.innerHTML = showError(`Benchmark failed: ${e.message}`); 
+        } finally { 
+          btn.disabled = false; 
+        }
+      };
+
+      qs('#btnLoadTest').onclick = async () => {
+        const out = qs('#loadResult');
+        const btn = qs('#btnLoadTest');
+        const queries = qs('#loadQueries').value || 20;
+        const workers = qs('#loadWorkers').value || 5;
+        
+        out.innerHTML = showLoading(`Running load test: ${queries} queries, ${workers} workers...`);
+        btn.disabled = true;
+        try {
+          // Simulate load test by sending multiple queries
+          const testQueries = Array(parseInt(queries)).fill().map((_, i) => `Test query ${i + 1}: What information is shown in this document?`);
+          const startTime = Date.now();
+          let successCount = 0;
+          
+          // Simple sequential test (can be enhanced for true concurrency)
+          for (const query of testQueries) {
+            try {
+              const payload = {
+                query: query,
+                collection_name: qs('#queryCollection').value || 'default',
+                top_k: 1,
+                include_context: false
+              };
+              await postForm(`${API}/rag/query`, payload);
+              successCount++;
+            } catch (e) {
+              // Count as failed
+            }
+          }
+          
+          const totalTime = (Date.now() - startTime) / 1000;
+          const successRate = (successCount / queries) * 100;
+          const queriesPerSecond = successCount / totalTime;
+          
+          const resultHtml = `
+            <div class=\"grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3\">
+              <div class=\"bg-gray-700 rounded p-2 text-center\">
+                <div class=\"text-xs text-gray-400\">Success Rate</div>
+                <div class=\"text-sm font-semibold\">${successRate.toFixed(1)}%</div>
+              </div>
+              <div class=\"bg-gray-700 rounded p-2 text-center\">
+                <div class=\"text-xs text-gray-400\">Queries/sec</div>
+                <div class=\"text-sm font-semibold\">${queriesPerSecond.toFixed(2)}</div>
+              </div>
+              <div class=\"bg-gray-700 rounded p-2 text-center\">
+                <div class=\"text-xs text-gray-400\">Total Time</div>
+                <div class=\"text-sm font-semibold\">${totalTime.toFixed(2)}s</div>
+              </div>
+            </div>
+          `;
+          
+          out.innerHTML = showSuccess('Load test completed!') + resultHtml;
+          loadSystemStatus(); // Refresh metrics
+        } catch (e) { 
+          out.innerHTML = showError(`Load test failed: ${e.message}`); 
+        } finally { 
+          btn.disabled = false; 
+        }
       };
 
       qs('#btnHealth').onclick = async () => {
-        const out = qs('#statsOut'); out.textContent = 'Loading health...';
-        const res = await fetch(`${API}/health`); out.textContent = JSON.stringify(await res.json(), null, 2);
+        const out = qs('#statsResult');
+        out.innerHTML = showLoading('Loading health status...');
+        try {
+          const res = await fetch(`${API}/health`);
+          const json = await res.json();
+          out.innerHTML = `<pre class=\"text-xs bg-gray-900 text-gray-300 p-3 rounded overflow-auto border border-gray-700\">${JSON.stringify(json, null, 2)}</pre>`;
+        } catch (e) {
+          out.innerHTML = showError(`Failed to load health: ${e.message}`);
+        }
       };
+      
       qs('#btnStats').onclick = async () => {
-        const out = qs('#statsOut'); out.textContent = 'Loading stats...';
-        const res = await fetch(`${API}/stats`); out.textContent = JSON.stringify(await res.json(), null, 2);
+        const out = qs('#statsResult');
+        out.innerHTML = showLoading('Loading system stats...');
+        try {
+          const res = await fetch(`${API}/stats`);
+          const json = await res.json();
+          out.innerHTML = `<pre class=\"text-xs bg-gray-900 text-gray-300 p-3 rounded overflow-auto border border-gray-700\">${JSON.stringify(json, null, 2)}</pre>`;
+        } catch (e) {
+          out.innerHTML = showError(`Failed to load stats: ${e.message}`);
+        }
       };
       </script>
     </body>

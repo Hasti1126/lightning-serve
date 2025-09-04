@@ -17,11 +17,16 @@ import shutil
 from typing import List, Dict, Tuple, Optional
 
 load_dotenv()
-
+def read_secret(path):
+    try:
+        with open(path, "r") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return None
 class VisionLanguageRAG:
     def __init__(self):
-        self.gemini_api_key = os.getenv("GOOGLE_API_KEY")
-        self.cohere_api_key = os.getenv("COHERE_API_KEY")
+        self.gemini_api_key = os.getenv("GOOGLE_API_KEY") or read_secret("/etc/secrets/GOOGLE_API_KEY")
+        self.cohere_api_key = os.getenv("COHERE_API_KEY") or read_secret("/etc/secrets/COHERE_API_KEY")
         self.client = None
         self.co = None
         self.ready = False

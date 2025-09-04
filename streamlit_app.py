@@ -4,7 +4,7 @@ import json
 import time
 from PIL import Image
 import io
-
+import os
 if 'benchmark_running' not in st.session_state:
     st.session_state['benchmark_running'] = False
 
@@ -82,7 +82,10 @@ st.markdown("""
 st.title("⚡ Lightning-Serve: Production Vision-Language RAG")
 st.markdown("*Enterprise-grade document understanding with real-time processing*")
 
-API_BASE = "http://localhost:8000"
+# API_BASE = "http://localhost:8000"
+
+
+API_BASE = os.getenv("API_BASE", "http://localhost:8000")
 
 # Sidebar: System Status
 with st.sidebar:
