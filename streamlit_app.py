@@ -263,104 +263,147 @@ with tab2:
 with tab3:
     st.header("⚡ Performance Benchmarking")
     st.markdown("Test system performance and scalability")
-    
+
     col1, col2 = st.columns(2)
-    
+
+    # --------------------------
+    # 🚀 RAG Benchmark (LEFT)
+    # --------------------------
     with col1:
         st.subheader("🚀 RAG Benchmark")
-        if st.button("Run RAG Performance Test", disabled=st.session_state['benchmark_running']):
+
+        # Button to trigger benchmark
+        run_benchmark = st.button(
+            "Run RAG Performance Test", 
+            disabled=st.session_state['benchmark_running']
+        )
+
+        # Container where results will always be rendered
+        benchmark_container = st.container()
+
+        if run_benchmark:
             st.session_state['benchmark_running'] = True
             with st.spinner("Running comprehensive benchmark..."):
                 try:
                     response = requests.get(f"{API_BASE}/rag/benchmark")
                     result = response.json()
-                    
-                    st.success("✅ Benchmark Complete")
-                    
-                    summary = result.get("benchmark_summary", {})
-                    
-                    # Key metrics
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Queries/Second", f"{summary.get('queries_per_second', 0):.2f}")
-                    with col2:
-                        st.metric("Success Rate", f"{summary.get('success_rate', 0):.1f}%")
-                    with col3:
-                        st.metric("Avg Query Time", f"{summary.get('avg_query_time', 0):.3f}s")
-                    
-                    # Detailed results
-                    st.subheader("📊 Detailed Results")
-                    for result_item in result.get("detailed_results", []):
-                        if result_item.get("success"):
-                            st.success(f"✅ {result_item['query']} - {result_item['response_time']:.3f}s")
-                        else:
-                            st.error(f"❌ {result_item['query']} - {result_item.get('error', 'Failed')}")
-                    
-                    # Refresh system stats after benchmark
-                    try:
-                        stats_response = requests.get(f"{API_BASE}/stats")
-                        stats = stats_response.json()
-                        st.subheader("🖥️ System Snapshot After Benchmark")
-                        c1, c2, c3 = st.columns(3)
-                        with c1:
-                            st.metric("CPU Usage", f"{stats['system']['cpu_percent']:.1f}%")
-                        with c2:
-                            st.metric("Memory Usage", f"{stats['system']['memory_percent']:.1f}%")
-                        with c3:
-                            st.metric("Cache Connected", "Yes" if stats['cache']['connected'] else "No")
-                    except Exception:
-                        pass
+
+                    with benchmark_container:
+                        st.success("✅ Benchmark Complete")
+
+                        summary = result.get("benchmark_summary", {})
+
+                        # Key metrics
+                        col_a, col_b, col_c = st.columns(3)
+                        with col_a:
+                            st.metric("⚡ Queries/Second", f"{summary.get('queries_per_second', 0):.2f}")
+                        with col_b:
+                            st.metric("✅ Success Rate", f"{summary.get('success_rate', 0):.1f}%")
+                            st.progress(int(summary.get("success_rate", 0)))
+                        with col_c:
+                            st.metric("⏱ Avg Query Time", f"{summary.get('avg_query_time', 0):.3f}s")
+
+                        # Detailed results
+                        st.subheader("📊 Detailed Results")
+                        for i, result_item in enumerate(result.get("detailed_results", []), start=1):
+                            with st.expander(f"Query {i}: {result_item['query']}"):
+                                if result_item.get("success"):
+                                    st.success(f"✅ Success in {result_item['response_time']:.3f}s")
+                                else:
+                                    st.error(f"❌ Failed: {result_item.get('error', 'Unknown error')}")
+
+                        # System snapshot after benchmark
+                        try:
+                            stats_response = requests.get(f"{API_BASE}/stats")
+                            stats = stats_response.json()
+                            st.subheader("🖥️ System Snapshot After Benchmark")
+
+                            c1, c2, c3 = st.columns(3)
+                            with c1:
+                                st.metric("🖥 CPU Usage", f"{stats['system']['cpu_percent']:.1f}%")
+                            with c2:
+                                st.metric("💾 Memory Usage", f"{stats['system']['memory_percent']:.1f}%")
+                            with c3:
+                                cache_status = "✅ Connected" if stats['cache']['connected'] else "⚠️ Disconnected"
+                                st.metric("📦 Cache", cache_status)
+                        except Exception:
+                            st.warning("Could not fetch system snapshot.")
                 except Exception as e:
-                    st.error(f"Benchmark failed: {e}")
+                    with benchmark_container:
+                        st.error(f"Benchmark failed: {e}")
                 finally:
                     st.session_state['benchmark_running'] = False
-    
-    with col2:
-        st.subheader("📊 System Load Test")
-        
-        num_queries = st.slider("Number of test queries:", 5, 50, 20)
-        concurrent_queries = st.slider("Concurrent queries:", 1, 10, 5)
-        
-        if st.button("Run Load Test"):
-            with st.spinner("Running load test..."):
-                test_queries = [
-                    f"Test query {i}: What information is shown in this document?"
-                    for i in range(num_queries)
-                ]
-                
-                start_time = time.time()
-                success_count = 0
-                total_response_time = 0
-                
-                # Simple sequential test (for your i3 system)
-                for query in test_queries:
-                    try:
-                        query_start = time.time()
-                        response = requests.post(
-                            f"{API_BASE}/rag/query",
-                            data={"query": query, "collection_name": "default", "top_k": 1}
-                        )
-                        query_time = time.time() - query_start
-                        
-                        if response.status_code == 200:
-                            success_count += 1
-                            total_response_time += query_time
-                            
-                    except:
-                        pass
-                
-                total_time = time.time() - start_time
-                
-                # Display results
-                st.success("✅ Load test complete!")
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Success Rate", f"{(success_count/num_queries*100):.1f}%")
-                with col2:
-                    st.metric("Queries/Second", f"{success_count/total_time:.2f}")
-                with col3:
-                    st.metric("Avg Response", f"{total_response_time/max(success_count,1):.3f}s")
+
+    # --------------------------
+    # 📊 System Load Test (RIGHT)
+    # --------------------------
+    # with col2:
+    #     st.subheader("📊 System Load Test")
+
+    #     num_queries = st.slider("Number of test queries:", 1,10,5)
+    #     concurrent_queries = st.slider("Concurrent queries:", 1, 10,2)
+
+    #     if st.button("Run Load Test"):
+    #         st.info(f"Running {num_queries} queries with {concurrent_queries} workers...")
+
+    #         test_queries = [
+    #             f"Test query {i}: What information is shown in this document?"
+    #             for i in range(num_queries)
+    #         ]
+
+    #         # Progress bar + live text
+    #         progress = st.progress(0)
+    #         status_text = st.empty()
+
+    #         def run_query(query):
+    #             try:
+    #                 query_start = time.time()
+    #                 r = requests.post(
+    #                     f"{API_BASE}/rag/query",
+    #                     data={
+    #                         "query": query,
+    #                         "collection_name": "default",
+    #                         "top_k": 1,
+    #                         "include_context": "true"
+    #                     },
+    #                     timeout=60
+    #                 )
+    #                 dt = time.time() - query_start
+    #                 if r.status_code == 200:
+    #                     return True, dt
+    #                 return False, 0
+    #             except Exception:
+    #                 st.error(f"Request failed: {e}")
+
+
+    #         start_time = time.time()
+    #         success_count, total_response_time = 0, 0
+
+    #         import concurrent.futures
+    #         with concurrent.futures.ThreadPoolExecutor(max_workers=concurrent_queries) as ex:
+    #             futures = [ex.submit(run_query, q) for q in test_queries]
+    #             for i, fut in enumerate(concurrent.futures.as_completed(futures)):
+    #                 ok, dt = fut.result()
+    #                 if ok:
+    #                     success_count += 1
+    #                     total_response_time += dt
+
+    #                 # update progress
+    #                 progress.progress((i + 1) / num_queries)
+    #                 status_text.text(f"Completed {i+1}/{num_queries} queries...")
+
+    #         total_time = time.time() - start_time
+
+    #         st.success("✅ Load test complete!")
+
+    #         col_x, col_y, col_z = st.columns(3)
+    #         with col_x:
+    #             st.metric("Success Rate", f"{(success_count/num_queries*100):.1f}%")
+    #         with col_y:
+    #             st.metric("Queries/Second", f"{success_count/total_time:.2f}")
+    #         with col_z:
+    #             st.metric("Avg Response", f"{total_response_time/max(success_count,1):.3f}s")
+
 
 with tab4:
     st.header("📈 System Analytics")
@@ -400,37 +443,6 @@ with tab4:
                 
         except Exception as e:
             st.error(f"Failed to fetch stats: {e}")
-
-# ================================
-# DEMO SECTION
-# ================================
-
-st.markdown("---")
-st.header("🎯 Quick Demo")
-st.markdown("Try the system with sample data or upload your own documents!")
-
-demo_col1, demo_col2 = st.columns(2)
-
-with demo_col1:
-    st.subheader("📤 Upload & Process")
-    demo_files = st.file_uploader(
-        "Upload your documents for testing:",
-        type=['pdf', 'png', 'jpg', 'jpeg'],
-        accept_multiple_files=True,
-        key="demo_upload"
-    )
-    
-    if demo_files and st.button("Process Demo Documents"):
-        with st.spinner("Processing..."):
-            # Process files
-            st.success("Documents processed! Try querying in the next column.")
-
-with demo_col2:
-    st.subheader("💬 Ask Questions")
-    demo_query = st.text_input("Ask about your documents:", "What is this document about?")
-    
-    if demo_query and st.button("Get Answer"):
-        st.success("Demo query processed!")
 
 # Footer
 st.markdown("---")
